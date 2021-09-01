@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	waiters = 25
+	waiters = 2500
 )
 
 func TestSingleContextErr(t *testing.T) {
