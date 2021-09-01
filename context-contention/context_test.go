@@ -8,94 +8,153 @@ import (
 )
 
 const (
-	waiters = 2500
+	waiters = 25
+	waits   = 1000
 )
 
 func TestSingleContextErr(t *testing.T) {
-	testSingleContextErr(t)
+	f := setupSingleContextErrTest()
+	defer f.stop()
+	f.un(t)
 }
 
 func BenchmarkSingleContextErr(b *testing.B) {
+	f := setupSingleContextErrTest()
+	defer f.stop()
 	for i := 0; i < b.N; i++ {
-		testSingleContextErr(b)
+		f.un(b)
 	}
 }
 
-func testSingleContextErr(t testing.TB) {
+func setupSingleContextErrTest() *singleContextErrTest {
 	ctx, cancel := makeTestContext()
-	defer cancel()
-
-	var wg sync.WaitGroup
-	wg.Add(waiters)
-	for i := 0; i < waiters; i++ {
-		go func() {
-			defer wg.Done()
-			if err := ctx.Err(); err != nil {
-				t.Error(err)
-			}
-		}()
+	return &singleContextErrTest{
+		ctx:    ctx,
+		cancel: cancel,
 	}
-	wg.Wait()
+}
+
+type singleContextErrTest struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+func (s *singleContextErrTest) stop() {
+	s.cancel()
+}
+
+func (s *singleContextErrTest) un(t testing.TB) {
+	runWaiters(t, func(_ int) error {
+		return s.ctx.Err()
+	})
 }
 
 func TestMultipleContextsErr(t *testing.T) {
-	testMultipleContextsErr(t)
+	f := setupMultipleContextsErrTest()
+	defer f.stop()
+	f.un(t)
 }
 
 func BenchmarkMultipleContextsErr(b *testing.B) {
+	f := setupMultipleContextsErrTest()
+	defer f.stop()
 	for i := 0; i < b.N; i++ {
-		testMultipleContextsErr(b)
+		f.un(b)
 	}
 }
 
-func testMultipleContextsErr(t testing.TB) {
+func setupMultipleContextsErrTest() *multipleContextsErrTest {
 	ctx, cancel := makeTestContext()
-	defer cancel()
-
-	var wg sync.WaitGroup
-	wg.Add(waiters)
+	ctxs := make([]context.Context, 0, waiters)
+	cancels := make([]context.CancelFunc, 0, waiters+1)
 	for i := 0; i < waiters; i++ {
-		go func() {
-			defer wg.Done()
-			cctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-			if err := cctx.Err(); err != nil {
-				t.Error(err)
-			}
-		}()
+		cctx, ccancel := context.WithCancel(ctx)
+		ctxs = append(ctxs, cctx)
+		cancels = append(cancels, ccancel)
 	}
-	wg.Wait()
+	cancels = append(cancels, cancel)
+	return &multipleContextsErrTest{
+		ctxs:    ctxs,
+		cancels: cancels,
+	}
+}
+
+type multipleContextsErrTest struct {
+	ctxs    []context.Context
+	cancels []context.CancelFunc
+}
+
+func (m *multipleContextsErrTest) stop() {
+	for _, cancel := range m.cancels {
+		cancel()
+	}
+}
+
+func (m *multipleContextsErrTest) un(t testing.TB) {
+	runWaiters(t, func(i int) error {
+		return m.ctxs[i].Err()
+	})
 }
 
 func TestSingleContextDone(t *testing.T) {
-	testSingleContextDone(t)
+	f := setupSingleContextDoneTest()
+	defer f.stop()
+	f.un(t)
 }
 
 func BenchmarkSingleContextDone(b *testing.B) {
+	f := setupSingleContextDoneTest()
+	defer f.stop()
 	for i := 0; i < b.N; i++ {
-		testSingleContextDone(b)
+		f.un(b)
 	}
 }
 
-func testSingleContextDone(t testing.TB) {
+func setupSingleContextDoneTest() *singleContextDoneTest {
 	ctx, cancel := makeTestContext()
-	defer cancel()
+	return &singleContextDoneTest{
+		ctx:    ctx,
+		cancel: cancel,
+	}
+}
 
+type singleContextDoneTest struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+func (s *singleContextDoneTest) stop() {
+	s.cancel()
+}
+
+func (s *singleContextDoneTest) un(t testing.TB) {
+	runWaiters(t, func(_ int) error {
+		select {
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		default:
+			return nil
+		}
+	})
+}
+
+func makeTestContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 30*time.Second)
+}
+
+func runWaiters(t testing.TB, fn func(int) error) {
 	var wg sync.WaitGroup
 	wg.Add(waiters)
 	for i := 0; i < waiters; i++ {
+		i := i
 		go func() {
 			defer wg.Done()
-			select {
-			case <-ctx.Done():
-				t.Error(ctx.Err())
-			default:
+			for n := 0; n < waits; n++ {
+				if err := fn(i); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}()
 	}
 	wg.Wait()
-}
-
-func makeTestContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), time.Second)
 }
