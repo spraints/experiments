@@ -138,6 +138,58 @@ func (s *singleContextDoneTest) un(t testing.TB) {
 	})
 }
 
+func TestMultipleContextsDone(t *testing.T) {
+	f := setupMultipleContextsDoneTest()
+	defer f.stop()
+	f.un(t)
+}
+
+func BenchmarkMultipleContextsDone(b *testing.B) {
+	f := setupMultipleContextsDoneTest()
+	defer f.stop()
+	for i := 0; i < b.N; i++ {
+		f.un(b)
+	}
+}
+
+func setupMultipleContextsDoneTest() *multipleContextsDoneTest {
+	ctx, cancel := makeTestContext()
+	ctxs := make([]context.Context, 0, waiters)
+	cancels := make([]context.CancelFunc, 0, waiters+1)
+	for i := 0; i < waiters; i++ {
+		cctx, ccancel := context.WithCancel(ctx)
+		ctxs = append(ctxs, cctx)
+		cancels = append(cancels, ccancel)
+	}
+	cancels = append(cancels, cancel)
+	return &multipleContextsDoneTest{
+		ctxs:    ctxs,
+		cancels: cancels,
+	}
+}
+
+type multipleContextsDoneTest struct {
+	ctxs    []context.Context
+	cancels []context.CancelFunc
+}
+
+func (m *multipleContextsDoneTest) stop() {
+	for _, cancel := range m.cancels {
+		cancel()
+	}
+}
+
+func (m *multipleContextsDoneTest) un(t testing.TB) {
+	runWaiters(t, func(i int) error {
+		select {
+		case <-m.ctxs[i].Done():
+			return m.ctxs[i].Err()
+		default:
+			return nil
+		}
+	})
+}
+
 func makeTestContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 30*time.Second)
 }
