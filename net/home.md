@@ -4,16 +4,14 @@
 
 ```mermaid
 architecture-beta
-    group api(cloud)[API]
+    group house(house)[House]
 
-    service db(database)[Database] in api
-    service disk1(disk)[Storage] in api
-    service disk2(disk)[Storage] in api
-    service server(server)[Server] in api
+    service lr(wifi)[living room AP] in house
+    service base(wifi)[Router] in house
+    service apt(wifi)[Apartment] in house
 
-    db:L -- R:server
-    disk1:T -- B:server
-    disk2:T -- B:db
+    lr:R -- L:base
+    base:R -- L:apt
 ```
 
 ## proposed
